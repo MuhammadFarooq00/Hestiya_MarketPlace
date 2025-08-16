@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useContext } from "react";
-import { useStripe, useElements, CardElement } from "@stripe/react-stripe-js";
+import { 
+  useStripe, 
+  useElements, 
+  CardElement
+} from "@stripe/react-stripe-js";
 import axios from "axios";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -22,19 +26,31 @@ const StripePayment = ({
   const [loading, setLoading] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [feeDetails, setFeeDetails] = useState({
-    percentage: 5.9,
-    fixed: 0.50,
-    totalFee: ((Number(baseAmount) * 5.9) / 100) + 0.50,
-    displayAmount: (Number(baseAmount) + ((Number(baseAmount) * 5.9) / 100) + 0.50).toFixed(2),
-    type: 'international_conversion',
-    scheme: 'card',
-    country: 'International'
-  });
+  const [showFeeTooltip, setShowFeeTooltip] = useState(false);
+  const [feeDetails, setFeeDetails] = useState(null);
   const [cardDetails, setCardDetails] = useState(null);
   const { setCartId } = useContext(UserContext);
   const navigate = useNavigate();
 
+  // Initialize feeDetails with proper validation
+  useEffect(() => {
+    const validAmount = Number(baseAmount) || 0;
+    const percentage = 5.9;
+    const fixed = 0.50;
+    const totalFee = ((validAmount * percentage) / 100) + fixed;
+    
+    setFeeDetails({
+      percentage,
+      fixed,
+      totalFee,
+      displayAmount: (validAmount + totalFee).toFixed(2),
+      type: 'international_conversion',
+      scheme: 'card',
+      country: 'International'
+    });
+  }, [baseAmount]);
+
+  // Detect card type and country using Binlist
   const detectCardDetails = async (bin) => {
     try {
       const response = await axios.get(`https://binlist.io/lookup/${bin}`);
@@ -55,7 +71,9 @@ const StripePayment = ({
     }
   };
 
+  // Calculate fees based on card type and country
   const calculateFees = (cardInfo) => {
+    const validAmount = Number(baseAmount) || 0;
     const isDomestic = cardInfo.country === 'Singapore';
     const isDebit = cardInfo.type === 'debit';
     
@@ -68,8 +86,8 @@ const StripePayment = ({
       percentage = 3.9;
     }
 
-    const totalFee = ((Number(baseAmount) * percentage) / 100) + fixed;
-    const displayAmount = (Number(baseAmount) + totalFee).toFixed(2);
+    const totalFee = ((validAmount * percentage) / 100) + fixed;
+    const displayAmount = (validAmount + totalFee).toFixed(2);
     
     return {
       percentage,
@@ -83,6 +101,7 @@ const StripePayment = ({
     };
   };
 
+  // Handle card number changes
   useEffect(() => {
     const cardElement = elements?.getElement(CardElement);
     
@@ -111,9 +130,11 @@ const StripePayment = ({
           }
         } catch (error) {
           console.error("Error processing card details:", error);
+          // Fallback to default fees
+          const validAmount = Number(baseAmount) || 0;
           setFeeDetails(prev => ({
             ...prev,
-            displayAmount: (Number(baseAmount) + ((Number(baseAmount) * 5.9) / 100) + 0.50).toFixed(2)
+            displayAmount: (validAmount + ((validAmount * 5.9) / 100) + 0.50).toFixed(2)
           }));
         }
       };
@@ -192,36 +213,53 @@ const StripePayment = ({
     <div className="rounded-lg bg-white shadow-md p-6 max-w-md mx-auto">
       <h2 className="text-xl font-bold mb-4">Complete Your Payment</h2>
       
-      <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-        <h3 className="font-semibold mb-2">Payment Summary</h3>
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <span>Subtotal:</span>
-            <span>${Number(baseAmount).toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between">
-            <div className="flex items-center">
-              <span>Processing Fee ({feeDetails.percentage}%):</span>
-              <button 
-                onClick={() => setShowFeeTooltip(!showFeeTooltip)}
-                className="ml-1 text-gray-500 hover:text-gray-700"
-                type="button"
-              >
-                <FiInfo size={14} />
-              </button>
+      {feeDetails && (
+        <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+          <h3 className="font-semibold mb-2">Payment Summary</h3>
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <span>Subtotal:</span>
+              <span>${(Number(baseAmount) || 0).toFixed(2)}</span>
             </div>
-            <span>${((Number(baseAmount) * feeDetails.percentage) / 100).toFixed(2)}</span>
+            <div className="flex justify-between">
+              <div className="flex items-center">
+                <span>Processing Fee ({feeDetails.percentage}%):</span>
+                <button 
+                  onClick={() => setShowFeeTooltip(!showFeeTooltip)}
+                  className="ml-1 text-gray-500 hover:text-gray-700"
+                  type="button"
+                >
+                  <FiInfo size={14} />
+                </button>
+              </div>
+              <span>${((Number(baseAmount) || 0) * feeDetails.percentage / 100).toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Fixed Fee:</span>
+              <span>${feeDetails.fixed.toFixed(2)}</span>
+            </div>
+            <div className="border-t pt-2 mt-2 flex justify-between font-bold">
+              <span>Total:</span>
+              <span>${feeDetails.displayAmount}</span>
+            </div>
           </div>
-          <div className="flex justify-between">
-            <span>Fixed Fee:</span>
-            <span>${feeDetails.fixed.toFixed(2)}</span>
-          </div>
-          <div className="border-t pt-2 mt-2 flex justify-between font-bold">
-            <span>Total:</span>
-            <span>${feeDetails.displayAmount}</span>
-          </div>
+          
+          {showFeeTooltip && (
+            <div className="mt-2 p-2 bg-white border border-gray-200 rounded text-sm">
+              {feeDetails.type === 'domestic' && (
+                <p>Domestic {cardDetails?.scheme || 'card'} card ({feeDetails.percentage}% + ${feeDetails.fixed})</p>
+              )}
+              {feeDetails.type === 'international' && (
+                <p>International {cardDetails?.scheme || 'card'} card ({feeDetails.percentage}% + ${feeDetails.fixed})</p>
+              )}
+              {feeDetails.type === 'international_conversion' && (
+                <p>International card with currency conversion ({feeDetails.percentage}% + ${feeDetails.fixed})</p>
+              )}
+              {cardDetails?.country && <p>Card issued in: {cardDetails.country}</p>}
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       <form onSubmit={handlePayment} className="space-y-4">
         <div className="space-y-2">
@@ -268,7 +306,7 @@ const StripePayment = ({
               : 'bg-blue-600 hover:bg-blue-700'
           }`}
         >
-          {loading ? 'Processing...' : `Pay $${feeDetails.displayAmount}`}
+          {loading ? 'Processing...' : `Pay $${feeDetails?.displayAmount || '0.00'}`}
         </button>
 
         {error && <div className="text-red-500 text-sm mt-2">{error}</div>}
@@ -280,7 +318,6 @@ const StripePayment = ({
 };
 
 export default StripePayment;
-
 
 
 
