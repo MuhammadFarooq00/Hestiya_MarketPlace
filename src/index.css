@@ -1,0 +1,198 @@
+/* src/index.css */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: 'Alta';
+  src: url('./assets//font//alta-regular.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+.font-logo {
+  font-family: 'Alta', sans-serif;
+}
+
+
+/* CSS for customizing the scrollbar in the specific div */
+.sidebar-div::-webkit-scrollbar {
+    width: 3px; /* Adjust the width as needed */
+  }
+  
+  .sidebar-div::-webkit-scrollbar-thumb {
+    background-color: #314033; /* Change the thumb color */
+    border-radius: 6px;
+  }
+  
+  .sidebar-div::-webkit-scrollbar-track {
+    background-color: white; /* Change the track color */
+    border-radius: 6px;
+  }
+.sidebar-div2::-webkit-scrollbar {
+    width: 1px; /* Adjust the width as needed */
+  }
+  
+  .sidebar-div2::-webkit-scrollbar-thumb {
+    background-color: white; /* Change the thumb color */
+    border-radius: 6px;
+  }
+  
+  .sidebar-div2::-webkit-scrollbar-track {
+    background-color: #314033; /* Change the track color */
+    border-radius: 6px;
+  }
+
+
+.custom-select .mt-select .mt-select-label {
+  display: none;
+}
+
+.custom-select .mt-select {
+  border: 1px solid #d1d5db; /* Gray-300 */
+  border-radius: 0.375rem; /* Rounded-md */
+  padding: 0.5rem; /* p-2 */
+}
+
+.custom-select .mt-select:focus {
+  border-color: #3b82f6; /* Blue-500 */
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5); /* Blue-500 ring */
+}
+/* Add this to your CSS file */
+.custom-radio {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 25px;
+  height: 25px;
+  background-color: white;
+  border: 0px solid gray;
+  border-radius: 50%;
+  position: relative;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s ease-in-out;
+}
+
+.custom-radio:checked {
+  border-color: #314033;
+  border-width: 5px;
+}
+
+.custom-radio:checked::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  background-color: white;
+  border-radius: 50%;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+@media (max-width: 1280px) {
+  .custom-radio {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    width: 18px;
+    height: 18px;
+    background-color: white;
+    border: 0px solid gray;
+    border-radius: 50%;
+    position: relative;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.2s ease-in-out;
+  }
+  
+  .custom-radio:checked {
+    border-color: #314033;
+    border-width: 5px;
+  }
+  
+  .custom-radio:checked::before {
+    content: '';
+    width: 10px;
+    height: 10px;
+    background-color: white;
+    border-radius: 50%;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+}
+
+.react-datepicker__year--container{
+  background-color: white !important;
+  width: 220px !important;
+}
+.react-datepicker__year{
+  display: flex !important;
+  justify-content: center;
+}
+.react-datepicker__header react-datepicker-year-header{
+  background-color: white !important;
+}
+.react-datepicker{
+  border: 1px solid rgba(128, 128, 128, 0.144) !important;
+  border-radius: 10px !important;
+}
+.react-datepicker__year-text{
+color: black !important;
+border-radius: 30px;
+padding: 4px 10px;
+width: 80px !important;
+background-color: white !important;
+}
+.react-datepicker__year-text:hover{
+color: black !important;
+border-radius: 30px;
+padding: 4px 10px;
+width: 80px !important;
+background-color: #CDDC6E !important;
+}
+.react-datepicker__year-text--selected{
+color: black !important;
+border-radius: 30px;
+padding: 4px 10px;
+width: 80px !important;
+background-color: #CDDC6E !important;
+}
+.react-datepicker__year-text--in-selecting-range{
+color: black !important;
+border-radius: 30px;
+padding: 4px 10px;
+width: 80px !important;
+background-color: #CDDC6E !important;
+}
+.react-datepicker__year-text--disabled{
+color: rgba(128, 128, 128, 0.377) !important;
+border-radius: 30px;
+padding: 4px 10px;
+width: 80px !important;
+background-color: rgba(122, 122, 122, 0.109) !important;
+}
+/* class="react-datepicker__year-text react-datepicker__year-2020 react-datepicker__year-text--disabled" */
+/* react-datepicker__year-text react-datepicker__year-2024 react-datepicker__year-text--selected react-datepicker__year-text--today */
+
+
+.react-tel-input .form-control {
+  position: relative;
+  font-size: 14px;
+  letter-spacing: 0.01rem;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding-left: 48px;
+  margin-left: 0;
+  background: #FFFFFF;
+  border: 1px solid #CACACA;
+  border-radius: 5px;
+  line-height: 25px;
+  height: 42px !important;
+  width: 100% !important;
+}
