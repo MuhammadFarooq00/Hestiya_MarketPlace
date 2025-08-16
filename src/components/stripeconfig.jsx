@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useContext } from "react";
-import { 
-  useStripe, 
-  useElements, 
-  CardElement
+import {
+  useStripe,
+  useElements,
+  PaymentElement,
 } from "@stripe/react-stripe-js";
 import axios from "axios";
 import { ToastContainer, toast } from "react-toastify";
@@ -10,7 +10,6 @@ import "react-toastify/dist/ReactToastify.css";
 import { useNavigate } from "react-router-dom";
 import { generateAndDownloadPurchasePDF } from "../Template/Template";
 import { UserContext } from "../context/UserContext";
-import { FiInfo } from "react-icons/fi";
 
 const StripePayment = ({
   clientSecret,
@@ -18,196 +17,109 @@ const StripePayment = ({
   setShowStripeModal,
   datastrue,
   percentageValue,
-  baseAmount
+  paymentDetails,
+  feeStructure
 }) => {
   const stripe = useStripe();
   const elements = useElements();
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [showFeeTooltip, setShowFeeTooltip] = useState(false);
-  const [feeDetails, setFeeDetails] = useState(null);
-  const [cardDetails, setCardDetails] = useState(null);
+  const [showTransactionLoading, setShowTransactionLoading] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState(null);
+  const [calculatedFees, setCalculatedFees] = useState(0);
+  const [totalAmount, setTotalAmount] = useState(0);
   const { setCartId } = useContext(UserContext);
   const navigate = useNavigate();
 
-  // Initialize feeDetails with proper validation
   useEffect(() => {
-    console.log('Initializing feeDetails with baseAmount:', baseAmount); // Debug log
-    
-    const validAmount = parseFloat(baseAmount);
-    if (isNaN(validAmount)){
-      console.error('Invalid baseAmount received:', baseAmount);
-      setError('Invalid payment amount');
-      return;
+    if (elements) {
+      const element = elements.getElement(PaymentElement);
+      if (element) {
+        setIsReady(true);
+        
+        // Listen for payment method changes
+        element.on('change', (event) => {
+          if (event.complete && event.value && event.value.type) {
+            setPaymentMethod(event.value.type);
+          }
+        });
+      }
+    }
+  }, [elements]);
+
+  useEffect(() => {
+    if (paymentMethod && paymentDetails) {
+      calculateFees();
+    }
+  }, [paymentMethod, paymentDetails]);
+
+  const calculateFees = () => {
+    if (!paymentDetails || !paymentMethod) return;
+
+    const baseAmount = paymentDetails.total_cart_price;
+    let fees = 0;
+    let feeType = '';
+
+    // Determine fee structure based on payment method
+    if (paymentMethod === 'card') {
+      // In a real app, you would detect card type (domestic/international)
+      // For demo purposes, we'll use international with conversion as default
+      feeType = 'International Card with Currency Conversion';
+      const { percentage, fixed } = feeStructure.internationalWithConversion;
+      fees = (baseAmount * percentage / 100) + fixed;
+    } else {
+      // Handle other payment methods
+      feeType = 'Standard Processing';
+      const { percentage, fixed } = feeStructure.internationalSameCurrency;
+      fees = (baseAmount * percentage / 100) + fixed;
     }
 
-    const percentage = 5.9;
-    const fixed = 0.50;
-    const totalFee = ((validAmount * percentage) / 100) + fixed;
-    const displayAmount = (validAmount + totalFee).toFixed(2);
-    
-    console.log('Calculated fees:', { // Debug log
-      validAmount,
-      percentage,
-      fixed,
-      totalFee,
-      displayAmount
-    });
+    const platformFee = (baseAmount * percentageValue / 100);
+    const total = baseAmount + fees + platformFee;
 
-    setFeeDetails({
-      percentage,
-      fixed,
-      totalFee,
-      displayAmount,
-      type: 'international_conversion',
-      scheme: 'card',
-      country: 'International'
-    });
-  }, [baseAmount]);
+    setCalculatedFees(fees);
+    setTotalAmount(total);
 
-  // Detect card type and country using Binlist
-  const detectCardDetails = async (bin) => {
-    try {
-      console.log('Detecting card details for bin:', bin); // Debug log
-      const response = await axios.get(`https://binlist.io/lookup/${bin}`);
-      return {
-        scheme: response.data.scheme || 'card',
-        type: response.data.type || 'unknown',
-        country: response.data.country?.name || 'International',
-        bank: response.data.bank?.name || 'Unknown Bank'
-      };
-    } catch (error) {
-      console.error("Error detecting card details:", error);
-      return {
-        scheme: 'card',
-        type: 'unknown',
-        country: 'International',
-        bank: 'Unknown Bank'
-      };
-    }
-  };
-
-  // Calculate fees based on card type and country
-  const calculateFees = (cardInfo) => {
-    const validAmount = parseFloat(baseAmount);
-    if (isNaN(validAmount)) {
-      console.error('Invalid baseAmount in calculateFees:', baseAmount);
-      return {
-        percentage: 5.9,
-        fixed: 0.50,
-        totalFee: 0,
-        displayAmount: '0.00',
-        type: 'international_conversion',
-        scheme: 'card',
-        country: 'International'
-      };
-    }
-
-    const isDomestic = cardInfo.country === 'Singapore';
-    const isDebit = cardInfo.type === 'debit';
-    
-    let percentage = 5.9;
-    let fixed = 0.50;
-
-    if (isDomestic) {
-      percentage = isDebit ? 3.4 : 3.9;
-    } else if (cardInfo.country !== 'International') {
-      percentage = 3.9;
-    }
-
-    const totalFee = ((validAmount * percentage) / 100) + fixed;
-    const displayAmount = (validAmount + totalFee).toFixed(2);
-    
     return {
-      percentage,
-      fixed,
-      totalFee,
-      displayAmount,
-      type: isDomestic ? 'domestic' : 
-           (cardInfo.country === 'International' ? 'international_conversion' : 'international'),
-      scheme: cardInfo.scheme,
-      country: cardInfo.country
+      feeType,
+      fees: fees.toFixed(2),
+      platformFee: platformFee.toFixed(2),
+      totalAmount: total.toFixed(2)
     };
   };
 
-  // Handle card number changes
-  useEffect(() => {
-    const cardElement = elements?.getElement(CardElement);
-    
-    if (cardElement) {
-      const handleChange = async (event) => {
-        if (event.complete) {
-          setIsReady(true);
-        } else {
-          setIsReady(false);
-        }
-
-        try {
-          const cardValue = event.value;
-          if (!cardValue || typeof cardValue !== 'string') {
-            return;
-          }
-
-          const cleanedValue = cardValue.replace(/\s/g, '');
-          if (cleanedValue.length >= 6) {
-            const bin = cleanedValue.substring(0, 6);
-            const cardInfo = await detectCardDetails(bin);
-            setCardDetails(cardInfo);
-            
-            const fees = calculateFees(cardInfo);
-            setFeeDetails(fees);
-          }
-        } catch (error) {
-          console.error("Error processing card details:", error);
-          // Fallback to default fees
-          const validAmount = parseFloat(baseAmount) || 0;
-          setFeeDetails(prev => ({
-            ...prev,
-            displayAmount: (validAmount + ((validAmount * 5.9) / 100) + 0.50).toFixed(2)
-          }));
-        }
-      };
-
-      cardElement.on('change', handleChange);
-      return () => {
-        cardElement.off('change', handleChange);
-      };
-    }
-  }, [elements, baseAmount]);
-
   const handlePayment = async (e) => {
     e.preventDefault();
-    
-    if (!stripe || !elements || !termsAccepted) {
-      return;
-    }
-
-    // Final validation before payment
-    const validAmount = parseFloat(baseAmount);
-    if (isNaN(validAmount) || validAmount <= 0) {
-      setError('Invalid payment amount');
-      return;
-    }
-
     setLoading(true);
-    setError(null);
+
+    if (!stripe || !elements) {
+      setError("Stripe.js has not loaded.");
+      setLoading(false);
+      return;
+    }
+
+    setShowTransactionLoading(true);
 
     try {
-      console.log('Confirming payment with amount:', validAmount); // Debug log
-      const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
-        payment_method: {
-          card: elements.getElement(CardElement),
-        }
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          return_url: window.location.href,
+        },
+        redirect: "if_required",
       });
 
       if (error) {
-        console.error('Payment error:', error); // Debug log
         setError(error.message);
-        toast.error(error.message || "Payment failed");
-      } else if (paymentIntent?.status === "succeeded") {
-        console.log('Payment succeeded:', paymentIntent); // Debug log
+        setLoading(false);
+      } else if (paymentIntent && paymentIntent.status === "succeeded") {
+        setError(null);
+        setLoading(false);
+        setPaymentSuccess(true);
+
         const response = await axios.post(
           "https://api.hestiya.com/api/payment/",
           {
@@ -217,18 +129,22 @@ const StripePayment = ({
         );
         
         if (response.data) {
+          const { order_id, trx_hash, gas_used, intent_id } = response.data;
+
+          // Generate PDF
           const pdfData = {
-            hashId: response.data.trx_hash || paymentIntent.id,
+            hashId: trx_hash || intent_id,
             actionType: "Buy",
             trades: datastrue,
-            fees: response.data.gas_used || 0,
+            fees: gas_used || 0,
             hestiyafee: percentageValue,
-            stripeFee: feeDetails?.totalFee || 0,
             paymentMethod: "Bank",
-            itemType: response.data.item_type,
-            registry: response.data.registry,
-            buyerName: response.data.buyer_name,
-            buyerEmail: response.data.buyer_email,
+            itemType: response?.data?.item_type,
+            registry: response?.data?.registry,
+            buyerName: response?.data?.buyer_name,
+            buyerEmail: response?.data?.buyer_email,
+            processingFee: calculatedFees.toFixed(2),
+            totalAmount: totalAmount.toFixed(2)
           };
           generateAndDownloadPurchasePDF(pdfData);
         }
@@ -236,323 +152,103 @@ const StripePayment = ({
         setShowStripeModal(false);
         setCartId(null);
         navigate("/marketplace/portfolio");
+        setShowTransactionLoading(false);
+        localStorage.removeItem("cartId");
         toast.success("Purchase Successful!");
       }
     } catch (err) {
-      console.error('Payment processing error:', err); // Debug log
       setError(err.message);
-      toast.error("Payment failed. Please try again.");
-    } finally {
       setLoading(false);
+      setShowStripeModal(false);
+      setShowTransactionLoading(false);
+      toast.error("Payment failed. Please try again.");
     }
   };
 
-  if (!stripe) {
-    return <div className="flex justify-center items-center h-64">Loading Stripe...</div>;
-  }
+  const feeDetails = calculateFees();
 
   return (
-    <div className="rounded-lg bg-white shadow-md p-6 max-w-md mx-auto">
-      <h2 className="text-xl font-bold mb-4">Complete Your Payment</h2>
-      
-      {feeDetails ? (
-        <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-          <h3 className="font-semibold mb-2">Payment Summary</h3>
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <span>Subtotal:</span>
-              <span>${(parseFloat(baseAmount) || 0).toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <div className="flex items-center">
-                <span>Processing Fee ({feeDetails.percentage}%):</span>
-                <button 
-                  onClick={() => setShowFeeTooltip(!showFeeTooltip)}
-                  className="ml-1 text-gray-500 hover:text-gray-700"
-                  type="button"
-                >
-                  <FiInfo size={14} />
-                </button>
+    <div className="rounded-lg bg-white shadow-md p-4">
+      <form onSubmit={handlePayment}>
+        <PaymentElement />
+        
+        {paymentMethod && (
+          <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+            <h3 className="font-semibold mb-2">Payment Details</h3>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span>Subtotal:</span>
+                <span>${paymentDetails.total_cart_price.toFixed(2)}</span>
               </div>
-              <span>${((parseFloat(baseAmount) || 0) * feeDetails.percentage / 100).toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Fixed Fee:</span>
-              <span>${feeDetails.fixed.toFixed(2)}</span>
-            </div>
-            <div className="border-t pt-2 mt-2 flex justify-between font-bold">
-              <span>Total:</span>
-              <span>${feeDetails.displayAmount}</span>
+              <div className="flex justify-between">
+                <span>Platform Fee ({percentageValue}%):</span>
+                <span>${((paymentDetails.total_cart_price * percentageValue) / 100).toFixed(2)}</span>
+              </div>
+              {feeDetails && (
+                <>
+                  <div className="flex justify-between">
+                    <span>Processing Fee ({feeDetails.feeType}):</span>
+                    <span>${feeDetails.fees}</span>
+                  </div>
+                  <div className="border-t border-gray-200 pt-2 mt-2">
+                    <div className="flex justify-between font-semibold">
+                      <span>Total Amount:</span>
+                      <span>${feeDetails.totalAmount}</span>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
-          
-          {showFeeTooltip && (
-            <div className="mt-2 p-2 bg-white border border-gray-200 rounded text-sm">
-              {feeDetails.type === 'domestic' && (
-                <p>Domestic {cardDetails?.scheme || 'card'} card ({feeDetails.percentage}% + ${feeDetails.fixed})</p>
-              )}
-              {feeDetails.type === 'international' && (
-                <p>International {cardDetails?.scheme || 'card'} card ({feeDetails.percentage}% + ${feeDetails.fixed})</p>
-              )}
-              {feeDetails.type === 'international_conversion' && (
-                <p>International card with currency conversion ({feeDetails.percentage}% + ${feeDetails.fixed})</p>
-              )}
-              {cardDetails?.country && <p>Card issued in: {cardDetails.country}</p>}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="mb-6 p-4 bg-red-50 rounded-lg">
-          <p className="text-red-500">Unable to calculate payment details. Please try again.</p>
-        </div>
-      )}
+        )}
 
-      <form onSubmit={handlePayment} className="space-y-4">
-        <div className="space-y-2">
-          <label className="block text-sm font-medium">Card Details</label>
-          <CardElement 
-            options={{
-              style: {
-                base: {
-                  fontSize: '16px',
-                  color: '#424770',
-                  '::placeholder': {
-                    color: '#aab7c4',
-                  },
-                },
-                invalid: {
-                  color: '#9e2146',
-                },
-              },
-              hidePostalCode: true
-            }}
-          />
-        </div>
+        {paymentSuccess ? null : error && (
+          <div className="mt-4 text-red-500 text-sm">{error}</div>
+        )}
 
-        <div className="flex items-start">
-          <input
-            type="checkbox"
-            id="terms"
-            checked={termsAccepted}
-            onChange={(e) => setTermsAccepted(e.target.checked)}
-            className="mt-1 mr-2"
-            required
-          />
-          <label htmlFor="terms" className="text-sm">
-            I agree to the terms and conditions
+        <div className="mt-4 text-xs text-justify">
+          <label className="flex items-start">
+            <input
+              type="checkbox"
+              checked={termsAccepted}
+              onChange={(e) => setTermsAccepted(e.target.checked)}
+              className="mt-1 mr-2"
+            />
+            <span>
+              By proceeding with this transaction, I confirm that I have read,
+              understood, and agreed to be bound by Hestiya.com's Privacy Policy,
+              Platform Terms & conditions and the privacy policies of any
+              third-party payment processors engaged by Hestiya.com. Non-compliance
+              with the Platform Terms may result in transaction termination or
+              penalties imposed by Hestiya.com.
+            </span>
           </label>
         </div>
 
         <button
           type="submit"
-          disabled={!stripe || !isReady || loading || !termsAccepted || !feeDetails}
-          className={`w-full py-2 px-4 rounded-md text-white font-medium ${
-            (!stripe || !isReady || loading || !termsAccepted || !feeDetails) 
-              ? 'bg-gray-400 cursor-not-allowed' 
-              : 'bg-blue-600 hover:bg-blue-700'
-          }`}
+          disabled={
+            !stripe ||
+            !isReady ||
+            loading ||
+            !termsAccepted ||
+            showTransactionLoading
+          }
+          className={`w-full mt-4 bg-blue-500 hover:bg-blue-700 ${
+            (!termsAccepted || !paymentMethod) ? "opacity-50 cursor-not-allowed" : ""
+          } text-white font-bold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500`}
         >
-          {loading ? 'Processing...' : `Pay $${feeDetails?.displayAmount || '0.00'}`}
+          {loading || showTransactionLoading 
+            ? "Processing..." 
+            : `Pay $${totalAmount > 0 ? totalAmount.toFixed(2) : feeDetails?.totalAmount || '0.00'}`}
         </button>
-
-        {error && <div className="text-red-500 text-sm mt-2">{error}</div>}
       </form>
-
       <ToastContainer />
     </div>
   );
 };
 
 export default StripePayment;
-
-
-
-
-
-
-
-// import React, { useState, useEffect, useContext } from "react";
-// import {
-//   useStripe,
-//   useElements,
-//   PaymentElement,
-// } from "@stripe/react-stripe-js";
-// import axios from "axios";
-// import { ToastContainer, toast } from "react-toastify";
-// import "react-toastify/dist/ReactToastify.css";
-// import { useNavigate } from "react-router-dom";
-// import {
-//   generateAndDownloadPDF,
-//   generateAndDownloadPurchasePDF,
-// } from "../Template/Template";
-// import { UserContext } from "../context/UserContext";
-
-// const StripePayment = ({
-//   onSubmit,
-//   clientSecret,
-//   cartID,
-//   setShowStripeModal,
-//   datastrue,
-//   percentageValue,
-// }) => {
-//   const stripe = useStripe();
-//   const elements = useElements();
-//   const [error, setError] = useState(null);
-//   const [loading, setLoading] = useState(false);
-//   const [paymentSuccess, setPaymentSuccess] = useState(false);
-//   const [isReady, setIsReady] = useState(false);
-//   const [termsAccepted, setTermsAccepted] = useState(false);
-//   const [showTransactionLoading, setShowTransactionLoading] = useState(false);
-//   const { setCartId } = useContext(UserContext);
-//   const navigate = useNavigate();
-
-//   useEffect(() => {
-//     if (elements) {
-//       const element = elements.getElement(PaymentElement);
-//       if (element) {
-//         setIsReady(true);
-//       }
-//     }
-//   }, [elements]);
-
-//   const handlePayment = async (e) => {
-//     e.preventDefault();
-
-//     setLoading(true);
-
-//     if (!stripe || !elements) {
-//       setError("Stripe.js has not loaded.");
-//       setLoading(false);
-//       return;
-//     }
-
-//     setShowTransactionLoading(true);
-
-//     try {
-//       const { error, paymentIntent } = await stripe.confirmPayment({
-//         elements,
-//         confirmParams: {
-//           return_url: window.location.href,
-//         },
-//         redirect: "if_required",
-//       });
-
-//       if (error) {
-//         setError(error.message);
-//         setLoading(false);
-//       } else if (paymentIntent && paymentIntent.status === "succeeded") {
-//         setError(null);
-//         setLoading(false);
-//         setPaymentSuccess(true);
-
-//         const response = await axios.post(
-//           "http://127.0.0.1:8000/api/payment/",
-//           {
-//             intent_id: paymentIntent.id,
-//             cart_id: cartID,
-//           }
-//         );
-//         if (response.data) {
-//           const { order_id, trx_hash, gas_used, intent_id } = response.data;
-
-//           // Generate PDF
-//           const pdfData = {
-//             hashId: trx_hash || intent_id,
-//             actionType: "Buy",
-//             trades: datastrue,
-//             fees: gas_used || 0,
-//             hestiyafee: percentageValue,
-//             paymentMethod: "Bank",
-//             itemType: response?.data?.item_type,
-//             registry: response?.data?.registry,
-//             buyerName: response?.data?.buyer_name,
-//             buyerEmail: response?.data?.buyer_email,
-//           };
-//           generateAndDownloadPurchasePDF(pdfData);
-//         }
-
-//         setShowStripeModal(false);
-//         setCartId(null);
-//         navigate("/marketplace/portfolio");
-//         setShowTransactionLoading(false);
-//         localStorage.removeItem("cartId");
-//         toast.success("Purchase Successful!");
-//         // console.log("Payment response",response);
-//       }
-//     } catch (err) {
-//       setError(err.message);
-//       setLoading(false);
-//       setShowStripeModal(false);
-//       setShowTransactionLoading(false);
-//       toast.error("Payment failed. Please try again.");
-//       // navigate('/marketplace/cart');
-//     }
-//   };
-
-//   useEffect(() => {
-//     if (showTransactionLoading) {
-//       const timer = setTimeout(() => {
-//         setShowTransactionLoading(false);
-//         toast.info("Transaction is being processed. Please wait...");
-//       }, 3000); // Show loading for 3 seconds
-
-//       return () => clearTimeout(timer);
-//     }
-//   }, [showTransactionLoading]);
-
-//   return (
-//     <div className=" rounded-lg bg-white shadow-md">
-//       <form
-//         className=""
-//         onSubmit={(e) => {
-//           handlePayment(e);
-//         }}
-//       >
-//         <PaymentElement />
-//         {paymentSuccess
-//           ? null
-//           : error && <div style={{ color: "red" }}>{error}</div>}
-//         {/* {paymentSuccess && <div className='mt-4' style={{ color: 'green' }}>Payment successful!</div>} */}
-
-//         <div className="mt-4 text-[13px] text-justify  ">
-//           <label>
-//             <input
-//               type="checkbox"
-//               checked={termsAccepted}
-//               onChange={(e) => setTermsAccepted(e.target.checked)}
-//               className="text-[10px] mr-2"
-//             />
-//             By proceeding with this transaction, I confirm that I have read,
-//             understood, and agreed to be bound by Hestiya.com's Privacy Policy,
-//             Platform Terms & conditions and the privacy policies of any
-//             third-party payment processors engaged by Hestiya.com. <br />{" "}
-//             Non-compliance with the Platform Terms may result in transaction
-//             termination or penalties imposed by Hestiya.com.
-//           </label>
-//         </div>
-
-//         <button
-//           type="submit"
-//           disabled={
-//             !stripe ||
-//             !isReady ||
-//             loading ||
-//             !termsAccepted ||
-//             showTransactionLoading
-//           }
-//           className={`w-full cursor-pointer mt-4 bg-blue-500 hover:bg-blue-700 ${
-//             termsAccepted ? "" : "opacity-50 cursor-not-allowed"
-//           } text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 z-10`}
-//         >
-//           {loading || showTransactionLoading ? "Processing..." : "Pay"}
-//         </button>
-//       </form>
-//       <ToastContainer />
-//     </div>
-//   );
-// };
-
-// export default StripePayment;
 
 // import React, { useState, useEffect } from 'react';
 // import { useStripe, useElements, PaymentElement } from '@stripe/react-stripe-js';

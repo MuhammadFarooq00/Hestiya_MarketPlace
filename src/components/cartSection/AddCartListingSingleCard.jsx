@@ -947,26 +947,27 @@ useEffect(() => {
                                                               </button>
                                                             )}
                               
-                                                            {showStripeModal && (
-                                                             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4">
-                                                             <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md 
-                                                                             max-h-[96vh] overflow-y-auto py-4">
-                                                               <StripePaymentWrapper cartID={cartId} setShowStripeModal={setShowStripeModal} datastrue={datastrue} percentageValue={percentageValue} />
-                                                           
-                                                               <button
-                                                                 onClick={(e) => {
-                                                                   e.preventDefault();
-                                                                   setShowStripeModal(false);
-                                                                 }}
-                                                                 className="mt-4 w-full bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 
-                                                                            rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                                                               >
-                                                                 Close
-                                                               </button>
-                                                             </div>
-                                                           </div>
-                                                           
-                                                            )}
+                              {showStripeModal && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4">
+    <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md max-h-[96vh] overflow-y-auto py-4">
+      <StripePaymentWrapper 
+        cartID={cartId} 
+        setShowStripeModal={setShowStripeModal} 
+        datastrue={datastrue} 
+        percentageValue={percentageValue} 
+      />
+      <button
+        onClick={(e) => {
+          e.preventDefault();
+          setShowStripeModal(false);
+        }}
+        className="mt-4 w-full bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+      >
+        Close
+      </button>
+    </div>
+  </div>
+)}
 
 
                           </div>
