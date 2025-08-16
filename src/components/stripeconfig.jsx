@@ -94,7 +94,13 @@ const StripePayment = ({
     
     if (cardElement) {
       const handleChange = async (event) => {
-        if (event.complete && event.value?.replace(/\s/g, '').length >= 6) {
+        if (event.complete) {
+          setIsReady(true);
+        } else {
+          setIsReady(false);
+        }
+
+        if (event.value?.replace(/\s/g, '').length >= 6) {
           const bin = event.value.replace(/\s/g, '').substring(0, 6);
           const cardInfo = await detectCardDetails(bin);
           setCardDetails(cardInfo);
@@ -114,41 +120,42 @@ const StripePayment = ({
   // Calculate initial fees with default values
   useEffect(() => {
     if (baseAmount > 0 && !feeDetails) {
-      setFeeDetails({
+      const initialFees = {
         ...defaultFees,
         totalFee: ((baseAmount * defaultFees.percentage) / 100) + defaultFees.fixed,
         displayAmount: (baseAmount + ((baseAmount * defaultFees.percentage) / 100) + defaultFees.fixed).toFixed(2)
-      });
+      };
+      setFeeDetails(initialFees);
     }
   }, [baseAmount]);
 
   const handlePayment = async (e) => {
     e.preventDefault();
-    setLoading(true);
-
-    if (!stripe || !elements) {
-      setError("Stripe.js has not loaded.");
-      setLoading(false);
+    
+    if (!stripe || !elements || !termsAccepted) {
       return;
     }
 
+    setLoading(true);
+    setError(null);
     setShowTransactionLoading(true);
 
     try {
-      const { error, paymentIntent } = await stripe.confirmPayment({
-        elements,
-        confirmParams: {
-          return_url: window.location.href,
-        },
-        redirect: "if_required",
+      const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: elements.getElement(CardElement),
+          billing_details: {
+            // Add any required billing details here
+            // name: 'Customer Name',
+            // email: 'customer@example.com'
+          }
+        }
       });
 
       if (error) {
         setError(error.message);
-        setLoading(false);
+        toast.error(error.message || "Payment failed");
       } else if (paymentIntent && paymentIntent.status === "succeeded") {
-        setError(null);
-        setLoading(false);
         setPaymentSuccess(true);
 
         const response = await axios.post(
@@ -181,16 +188,14 @@ const StripePayment = ({
         setShowStripeModal(false);
         setCartId(null);
         navigate("/marketplace/portfolio");
-        setShowTransactionLoading(false);
-        localStorage.removeItem("cartId");
         toast.success("Purchase Successful!");
       }
     } catch (err) {
       setError(err.message);
-      setLoading(false);
-      setShowStripeModal(false);
-      setShowTransactionLoading(false);
       toast.error("Payment failed. Please try again.");
+    } finally {
+      setLoading(false);
+      setShowTransactionLoading(false);
     }
   };
 
@@ -217,6 +222,7 @@ const StripePayment = ({
                 <button 
                   onClick={() => setShowFeeTooltip(!showFeeTooltip)}
                   className="ml-1 text-gray-500 hover:text-gray-700"
+                  type="button"
                 >
                   <FiInfo size={14} />
                 </button>
@@ -267,6 +273,7 @@ const StripePayment = ({
                   color: '#9e2146',
                 },
               },
+              hidePostalCode: true // Add this to hide the postal code field if not needed
             }}
           />
         </div>
@@ -278,6 +285,7 @@ const StripePayment = ({
             checked={termsAccepted}
             onChange={(e) => setTermsAccepted(e.target.checked)}
             className="mt-1 mr-2"
+            required
           />
           <label htmlFor="terms" className="text-sm">
             I agree to the terms and conditions
@@ -293,7 +301,7 @@ const StripePayment = ({
               : 'bg-blue-600 hover:bg-blue-700'
           }`}
         >
-          {loading ? 'Processing...' : `Pay $${feeDetails?.displayAmount || '0.00'}`}
+          {loading ? 'Processing...' : `Pay $${feeDetails?.displayAmount || baseAmount.toFixed(2)}`}
         </button>
 
         {error && <div className="text-red-500 text-sm mt-2">{error}</div>}
@@ -305,8 +313,6 @@ const StripePayment = ({
 };
 
 export default StripePayment;
-
-
 
 
 
