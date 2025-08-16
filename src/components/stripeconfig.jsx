@@ -29,8 +29,11 @@ const StripePayment = ({
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [showTransactionLoading, setShowTransactionLoading] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState(null);
+  const [cardCountry, setCardCountry] = useState(null);
+  const [cardBrand, setCardBrand] = useState(null);
   const [calculatedFees, setCalculatedFees] = useState(0);
   const [totalAmount, setTotalAmount] = useState(0);
+  const [feeType, setFeeType] = useState('');
   const { setCartId } = useContext(UserContext);
   const navigate = useNavigate();
 
@@ -40,10 +43,13 @@ const StripePayment = ({
       if (element) {
         setIsReady(true);
         
-        // Listen for payment method changes
         element.on('change', (event) => {
-          if (event.complete && event.value && event.value.type) {
+          if (event.complete && event.value) {
             setPaymentMethod(event.value.type);
+            if (event.value.type === 'card') {
+              setCardBrand(event.value.card?.brand || 'unknown');
+              setCardCountry(event.value.card?.country || 'unknown');
+            }
           }
         });
       }
@@ -54,27 +60,43 @@ const StripePayment = ({
     if (paymentMethod && paymentDetails) {
       calculateFees();
     }
-  }, [paymentMethod, paymentDetails]);
+  }, [paymentMethod, paymentDetails, cardCountry, cardBrand]);
 
   const calculateFees = () => {
     if (!paymentDetails || !paymentMethod) return;
 
     const baseAmount = paymentDetails.total_cart_price;
     let fees = 0;
-    let feeType = '';
+    let currentFeeType = '';
+    let feeDetails = {};
 
-    // Determine fee structure based on payment method
+    // Determine fee structure based on payment method and card details
     if (paymentMethod === 'card') {
-      // In a real app, you would detect card type (domestic/international)
-      // For demo purposes, we'll use international with conversion as default
-      feeType = 'International Card with Currency Conversion';
-      const { percentage, fixed } = feeStructure.internationalWithConversion;
-      fees = (baseAmount * percentage / 100) + fixed;
-    } else {
-      // Handle other payment methods
-      feeType = 'Standard Processing';
-      const { percentage, fixed } = feeStructure.internationalSameCurrency;
-      fees = (baseAmount * percentage / 100) + fixed;
+      // For demo purposes - in production you would need more sophisticated detection
+      if (cardCountry === 'SG') {
+        // Domestic Singapore card
+        feeDetails = feeStructure.domestic;
+        currentFeeType = feeDetails.label;
+      } else if (cardBrand === 'unknown' || cardCountry === 'unknown') {
+        // Default to international with conversion if we can't detect
+        feeDetails = feeStructure.internationalWithConversion;
+        currentFeeType = feeDetails.label;
+      } else {
+        // International card - check if same currency
+        // Note: This is simplified - in production you'd need proper currency handling
+        feeDetails = feeStructure.internationalSameCurrency;
+        currentFeeType = feeDetails.label;
+      }
+      
+      fees = (baseAmount * feeDetails.percentage / 100) + feeDetails.fixed;
+    } else if (paymentMethod === 'us_bank_account') {
+      // USD payout
+      feeDetails = feeStructure.usdPayout;
+      currentFeeType = feeDetails.label;
+      fees = Math.max(
+        (baseAmount * feeDetails.percentage / 100),
+        feeDetails.minFee
+      );
     }
 
     const platformFee = (baseAmount * percentageValue / 100);
@@ -82,12 +104,15 @@ const StripePayment = ({
 
     setCalculatedFees(fees);
     setTotalAmount(total);
+    setFeeType(currentFeeType);
 
     return {
-      feeType,
+      feeType: currentFeeType,
       fees: fees.toFixed(2),
       platformFee: platformFee.toFixed(2),
-      totalAmount: total.toFixed(2)
+      totalAmount: total.toFixed(2),
+      feePercentage: feeDetails.percentage,
+      fixedFee: feeDetails.fixed
     };
   };
 
@@ -129,22 +154,24 @@ const StripePayment = ({
         );
         
         if (response.data) {
-          const { order_id, trx_hash, gas_used, intent_id } = response.data;
-
-          // Generate PDF
+          const feeDetails = calculateFees();
+          
           const pdfData = {
-            hashId: trx_hash || intent_id,
+            hashId: response.data.trx_hash || paymentIntent.id,
             actionType: "Buy",
             trades: datastrue,
-            fees: gas_used || 0,
+            fees: response.data.gas_used || 0,
             hestiyafee: percentageValue,
-            paymentMethod: "Bank",
-            itemType: response?.data?.item_type,
-            registry: response?.data?.registry,
-            buyerName: response?.data?.buyer_name,
-            buyerEmail: response?.data?.buyer_email,
-            processingFee: calculatedFees.toFixed(2),
-            totalAmount: totalAmount.toFixed(2)
+            paymentMethod: feeType,
+            processingFee: feeDetails.fees,
+            processingFeeType: feeDetails.feeType,
+            processingFeePercentage: feeDetails.feePercentage,
+            processingFixedFee: feeDetails.fixedFee,
+            totalAmount: feeDetails.totalAmount,
+            itemType: response.data?.item_type,
+            registry: response.data?.registry,
+            buyerName: response.data?.buyer_name,
+            buyerEmail: response.data?.buyer_email,
           };
           generateAndDownloadPurchasePDF(pdfData);
         }
@@ -172,7 +199,7 @@ const StripePayment = ({
       <form onSubmit={handlePayment}>
         <PaymentElement />
         
-        {paymentMethod && (
+        {paymentMethod && feeDetails && (
           <div className="mt-4 p-4 bg-gray-50 rounded-lg">
             <h3 className="font-semibold mb-2">Payment Details</h3>
             <div className="space-y-2 text-sm">
@@ -182,22 +209,23 @@ const StripePayment = ({
               </div>
               <div className="flex justify-between">
                 <span>Platform Fee ({percentageValue}%):</span>
-                <span>${((paymentDetails.total_cart_price * percentageValue) / 100).toFixed(2)}</span>
+                <span>${feeDetails.platformFee}</span>
               </div>
-              {feeDetails && (
-                <>
-                  <div className="flex justify-between">
-                    <span>Processing Fee ({feeDetails.feeType}):</span>
-                    <span>${feeDetails.fees}</span>
-                  </div>
-                  <div className="border-t border-gray-200 pt-2 mt-2">
-                    <div className="flex justify-between font-semibold">
-                      <span>Total Amount:</span>
-                      <span>${feeDetails.totalAmount}</span>
-                    </div>
-                  </div>
-                </>
-              )}
+              <div className="flex justify-between">
+                <span>
+                  Processing Fee ({feeDetails.feeType}): 
+                  <span className="text-xs text-gray-500 ml-1">
+                    ({feeDetails.feePercentage}% + ${feeDetails.fixedFee})
+                  </span>
+                </span>
+                <span>${feeDetails.fees}</span>
+              </div>
+              <div className="border-t border-gray-200 pt-2 mt-2">
+                <div className="flex justify-between font-semibold">
+                  <span>Total Amount:</span>
+                  <span>${feeDetails.totalAmount}</span>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -240,7 +268,7 @@ const StripePayment = ({
         >
           {loading || showTransactionLoading 
             ? "Processing..." 
-            : `Pay $${totalAmount > 0 ? totalAmount.toFixed(2) : feeDetails?.totalAmount || '0.00'}`}
+            : `Pay $${totalAmount > 0 ? totalAmount.toFixed(2) : feeDetails?.totalAmount || paymentDetails?.total_cart_price.toFixed(2)}`}
         </button>
       </form>
       <ToastContainer />

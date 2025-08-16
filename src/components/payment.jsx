@@ -9,12 +9,15 @@ const stripePromise = loadStripe('pk_live_51QhTuxIk4TcSBVYmnNPv31CraR7Ae2fhJgnhL
 const StripePaymentWrapper = ({ cartID, setShowStripeModal, datastrue, percentageValue }) => {
   const [clientSecret, setClientSecret] = useState('');
   const [paymentDetails, setPaymentDetails] = useState(null);
-  const [feeStructure, setFeeStructure] = useState({
-    domestic: { percentage: 3.4, fixed: 0.50 },
-    internationalSameCurrency: { percentage: 3.9, fixed: 0.50 },
-    internationalWithConversion: { percentage: 5.9, fixed: 0.50 },
-    usdPayout: { percentage: 1, fixed: 5 }
+  
+  // Updated fee structure with exact values from requirements
+  const [feeStructure] = useState({
+    domestic: { percentage: 3.4, fixed: 0.50, currency: 'SGD', label: 'Domestic Card (SGD)' },
+    internationalSameCurrency: { percentage: 3.9, fixed: 0.50, currency: 'SGD', label: 'International Card (same currency)' },
+    internationalWithConversion: { percentage: 5.9, fixed: 0.50, currency: 'SGD', label: 'International Card + currency conversion' },
+    usdPayout: { percentage: 1, fixed: 5, currency: 'USD', label: 'USD Payout', minFee: 5 }
   });
+
   const apiUrl = "https://api.hestiya.com/api/";
 
   useEffect(() => {
@@ -55,7 +58,6 @@ const StripePaymentWrapper = ({ cartID, setShowStripeModal, datastrue, percentag
 };
 
 export default StripePaymentWrapper;
-
 
 
 
