@@ -34,16 +34,33 @@ const StripePayment = ({
 
   // Initialize feeDetails with proper validation
   useEffect(() => {
-    const validAmount = Number(baseAmount) || 0;
+    console.log('Initializing feeDetails with baseAmount:', baseAmount); // Debug log
+    
+    const validAmount = parseFloat(baseAmount);
+    if (isNaN(validAmount)){
+      console.error('Invalid baseAmount received:', baseAmount);
+      setError('Invalid payment amount');
+      return;
+    }
+
     const percentage = 5.9;
     const fixed = 0.50;
     const totalFee = ((validAmount * percentage) / 100) + fixed;
+    const displayAmount = (validAmount + totalFee).toFixed(2);
     
+    console.log('Calculated fees:', { // Debug log
+      validAmount,
+      percentage,
+      fixed,
+      totalFee,
+      displayAmount
+    });
+
     setFeeDetails({
       percentage,
       fixed,
       totalFee,
-      displayAmount: (validAmount + totalFee).toFixed(2),
+      displayAmount,
       type: 'international_conversion',
       scheme: 'card',
       country: 'International'
@@ -53,6 +70,7 @@ const StripePayment = ({
   // Detect card type and country using Binlist
   const detectCardDetails = async (bin) => {
     try {
+      console.log('Detecting card details for bin:', bin); // Debug log
       const response = await axios.get(`https://binlist.io/lookup/${bin}`);
       return {
         scheme: response.data.scheme || 'card',
@@ -73,7 +91,20 @@ const StripePayment = ({
 
   // Calculate fees based on card type and country
   const calculateFees = (cardInfo) => {
-    const validAmount = Number(baseAmount) || 0;
+    const validAmount = parseFloat(baseAmount);
+    if (isNaN(validAmount)) {
+      console.error('Invalid baseAmount in calculateFees:', baseAmount);
+      return {
+        percentage: 5.9,
+        fixed: 0.50,
+        totalFee: 0,
+        displayAmount: '0.00',
+        type: 'international_conversion',
+        scheme: 'card',
+        country: 'International'
+      };
+    }
+
     const isDomestic = cardInfo.country === 'Singapore';
     const isDebit = cardInfo.type === 'debit';
     
@@ -131,7 +162,7 @@ const StripePayment = ({
         } catch (error) {
           console.error("Error processing card details:", error);
           // Fallback to default fees
-          const validAmount = Number(baseAmount) || 0;
+          const validAmount = parseFloat(baseAmount) || 0;
           setFeeDetails(prev => ({
             ...prev,
             displayAmount: (validAmount + ((validAmount * 5.9) / 100) + 0.50).toFixed(2)
@@ -153,10 +184,18 @@ const StripePayment = ({
       return;
     }
 
+    // Final validation before payment
+    const validAmount = parseFloat(baseAmount);
+    if (isNaN(validAmount) || validAmount <= 0) {
+      setError('Invalid payment amount');
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
+      console.log('Confirming payment with amount:', validAmount); // Debug log
       const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
         payment_method: {
           card: elements.getElement(CardElement),
@@ -164,9 +203,11 @@ const StripePayment = ({
       });
 
       if (error) {
+        console.error('Payment error:', error); // Debug log
         setError(error.message);
         toast.error(error.message || "Payment failed");
       } else if (paymentIntent?.status === "succeeded") {
+        console.log('Payment succeeded:', paymentIntent); // Debug log
         const response = await axios.post(
           "https://api.hestiya.com/api/payment/",
           {
@@ -198,6 +239,7 @@ const StripePayment = ({
         toast.success("Purchase Successful!");
       }
     } catch (err) {
+      console.error('Payment processing error:', err); // Debug log
       setError(err.message);
       toast.error("Payment failed. Please try again.");
     } finally {
@@ -213,13 +255,13 @@ const StripePayment = ({
     <div className="rounded-lg bg-white shadow-md p-6 max-w-md mx-auto">
       <h2 className="text-xl font-bold mb-4">Complete Your Payment</h2>
       
-      {feeDetails && (
+      {feeDetails ? (
         <div className="mb-6 p-4 bg-gray-50 rounded-lg">
           <h3 className="font-semibold mb-2">Payment Summary</h3>
           <div className="space-y-2">
             <div className="flex justify-between">
               <span>Subtotal:</span>
-              <span>${(Number(baseAmount) || 0).toFixed(2)}</span>
+              <span>${(parseFloat(baseAmount) || 0).toFixed(2)}</span>
             </div>
             <div className="flex justify-between">
               <div className="flex items-center">
@@ -232,7 +274,7 @@ const StripePayment = ({
                   <FiInfo size={14} />
                 </button>
               </div>
-              <span>${((Number(baseAmount) || 0) * feeDetails.percentage / 100).toFixed(2)}</span>
+              <span>${((parseFloat(baseAmount) || 0) * feeDetails.percentage / 100).toFixed(2)}</span>
             </div>
             <div className="flex justify-between">
               <span>Fixed Fee:</span>
@@ -258,6 +300,10 @@ const StripePayment = ({
               {cardDetails?.country && <p>Card issued in: {cardDetails.country}</p>}
             </div>
           )}
+        </div>
+      ) : (
+        <div className="mb-6 p-4 bg-red-50 rounded-lg">
+          <p className="text-red-500">Unable to calculate payment details. Please try again.</p>
         </div>
       )}
 
@@ -299,9 +345,9 @@ const StripePayment = ({
 
         <button
           type="submit"
-          disabled={!stripe || !isReady || loading || !termsAccepted}
+          disabled={!stripe || !isReady || loading || !termsAccepted || !feeDetails}
           className={`w-full py-2 px-4 rounded-md text-white font-medium ${
-            (!stripe || !isReady || loading || !termsAccepted) 
+            (!stripe || !isReady || loading || !termsAccepted || !feeDetails) 
               ? 'bg-gray-400 cursor-not-allowed' 
               : 'bg-blue-600 hover:bg-blue-700'
           }`}
@@ -318,9 +364,6 @@ const StripePayment = ({
 };
 
 export default StripePayment;
-
-
-
 
 
 

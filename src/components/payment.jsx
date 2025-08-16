@@ -4,14 +4,14 @@ import { Elements } from '@stripe/react-stripe-js';
 import axios from 'axios';
 import StripePayment from './stripeconfig';
 
-const stripePromise = loadStripe('pk_live_51QhTuxIk4TcSBVYmnNPv31CraR7Ae2fhJgnhLeOCgCvobgjS1ZHNdl9PO4shDKnCZuncBQKrrMpuDzwTCQK2Hzh200TTx3Z9wC');
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
 
 const StripePaymentWrapper = ({ cartID, setShowStripeModal, datastrue, percentageValue }) => {
   const [clientSecret, setClientSecret] = useState('');
   const [baseAmount, setBaseAmount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const apiUrl = "https://api.hestiya.com/api/";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.hestiya.com/api/";
 
   useEffect(() => {
     const fetchCartTotal = async () => {
@@ -19,25 +19,36 @@ const StripePaymentWrapper = ({ cartID, setShowStripeModal, datastrue, percentag
         setLoading(true);
         setError(null);
         
-        // Validate datastrue
-        if (!Array.isArray(datastrue) || datastrue.length === 0) {
-          throw new Error('Invalid cart data');
+        console.log('Fetching cart total for cartID:', cartID); // Debug log
+        
+        // Validate datastrue structure
+        if (!Array.isArray(datastrue)) {
+          throw new Error('Invalid cart data format');
         }
 
-        // First get cart total from your existing endpoint
+        console.log('Datastrue items:', datastrue); // Debug log
+
+        // First get payment intent from your endpoint
         const response = await axios.post(`${apiUrl}payment-intent/`, { 
           cart_id: cartID 
         });
         
+        console.log('Payment intent response:', response.data); // Debug log
+        
         if (!response.data?.client_secret) {
-          throw new Error('Invalid response from server');
+          throw new Error('Invalid response from server - missing client_secret');
         }
         
         setClientSecret(response.data.client_secret);
         
         // Calculate base amount from cart items with proper validation
         const total = datastrue.reduce((sum, item) => {
-          const itemTotal = Number(item.total) || 0;
+          if (!item || typeof item !== 'object') {
+            console.error('Invalid item in datastrue:', item);
+            return sum;
+          }
+          
+          const itemTotal = parseFloat(item.total);
           if (isNaN(itemTotal)) {
             console.error('Invalid item total:', item.total);
             return sum;
@@ -45,14 +56,20 @@ const StripePaymentWrapper = ({ cartID, setShowStripeModal, datastrue, percentag
           return sum + itemTotal;
         }, 0);
 
+        console.log('Calculated total:', total); // Debug log
+
         // Validate the total is a positive number
-        if (isNaN(total) || total <= 0) {
-          throw new Error('Invalid total amount calculated');
+        if (isNaN(total)) {
+          throw new Error('Calculated total is not a number');
+        }
+        
+        if (total <= 0) {
+          throw new Error('Total amount must be greater than 0');
         }
         
         setBaseAmount(total);
       } catch (error) {
-        console.error('Error:', error);
+        console.error('Error in fetchCartTotal:', error);
         setError(error.message || 'Failed to load payment details');
         setBaseAmount(0);
       } finally {
@@ -60,23 +77,35 @@ const StripePaymentWrapper = ({ cartID, setShowStripeModal, datastrue, percentag
       }
     };
 
-    fetchCartTotal();
-  }, [cartID, datastrue]);
+    if (cartID && datastrue?.length > 0) {
+      fetchCartTotal();
+    } else {
+      setError('Missing cart ID or empty cart data');
+      setLoading(false);
+    }
+  }, [cartID, datastrue, apiUrl]);
 
   if (loading) {
     return <div className="flex justify-center items-center h-64">Loading payment details...</div>;
   }
 
   if (error) {
-    return <div className="text-red-500 p-4">{error}</div>;
+    return (
+      <div className="text-red-500 p-4">
+        {error}
+        <button 
+          onClick={() => window.location.reload()}
+          className="ml-2 px-3 py-1 bg-blue-500 text-white rounded"
+        >
+          Retry
+        </button>
+      </div>
+    );
   }
 
   if (!clientSecret) {
     return <div className="text-red-500 p-4">Error initializing payment. Please try again.</div>;
   }
-
-  // Ensure baseAmount is a valid number before passing to StripePayment
-  const validBaseAmount = isNaN(baseAmount) || baseAmount <= 0 ? 0 : Number(baseAmount);
 
   return (
     <Elements stripe={stripePromise} options={{ clientSecret }}>
@@ -86,14 +115,13 @@ const StripePaymentWrapper = ({ cartID, setShowStripeModal, datastrue, percentag
         setShowStripeModal={setShowStripeModal}
         datastrue={datastrue}
         percentageValue={percentageValue}
-        baseAmount={validBaseAmount}
+        baseAmount={baseAmount}
       />
     </Elements>
   );
 };
 
 export default StripePaymentWrapper;
-
 
 
 
