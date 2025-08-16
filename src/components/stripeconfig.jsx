@@ -1,10 +1,5 @@
 import React, { useState, useEffect, useContext } from "react";
-import { 
-  useStripe, 
-  useElements, 
-  PaymentElement,
-  CardElement
-} from "@stripe/react-stripe-js";
+import { useStripe, useElements, CardElement } from "@stripe/react-stripe-js";
 import axios from "axios";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -25,42 +20,41 @@ const StripePayment = ({
   const elements = useElements();
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [showTransactionLoading, setShowTransactionLoading] = useState(false);
-  const [showFeeTooltip, setShowFeeTooltip] = useState(false);
-  const [feeDetails, setFeeDetails] = useState(null);
+  const [feeDetails, setFeeDetails] = useState({
+    percentage: 5.9,
+    fixed: 0.50,
+    totalFee: ((Number(baseAmount) * 5.9) / 100) + 0.50,
+    displayAmount: (Number(baseAmount) + ((Number(baseAmount) * 5.9) / 100) + 0.50).toFixed(2),
+    type: 'international_conversion',
+    scheme: 'card',
+    country: 'International'
+  });
   const [cardDetails, setCardDetails] = useState(null);
   const { setCartId } = useContext(UserContext);
   const navigate = useNavigate();
 
-  // Default fee structure
-  const defaultFees = {
-    percentage: 5.9,
-    fixed: 0.50,
-    type: 'international_conversion',
-    scheme: 'card',
-    country: 'International'
-  };
-
-  // Detect card type and country using Binlist
   const detectCardDetails = async (bin) => {
     try {
       const response = await axios.get(`https://binlist.io/lookup/${bin}`);
       return {
-        scheme: response.data.scheme || 'unknown',
+        scheme: response.data.scheme || 'card',
         type: response.data.type || 'unknown',
         country: response.data.country?.name || 'International',
         bank: response.data.bank?.name || 'Unknown Bank'
       };
     } catch (error) {
       console.error("Error detecting card details:", error);
-      return defaultFees;
+      return {
+        scheme: 'card',
+        type: 'unknown',
+        country: 'International',
+        bank: 'Unknown Bank'
+      };
     }
   };
 
-  // Calculate fees based on card type and country
   const calculateFees = (cardInfo) => {
     const isDomestic = cardInfo.country === 'Singapore';
     const isDebit = cardInfo.type === 'debit';
@@ -74,13 +68,14 @@ const StripePayment = ({
       percentage = 3.9;
     }
 
-    const totalFee = ((baseAmount * percentage) / 100) + fixed;
+    const totalFee = ((Number(baseAmount) * percentage) / 100) + fixed;
+    const displayAmount = (Number(baseAmount) + totalFee).toFixed(2);
     
     return {
       percentage,
       fixed,
       totalFee,
-      displayAmount: (baseAmount + totalFee).toFixed(2),
+      displayAmount,
       type: isDomestic ? 'domestic' : 
            (cardInfo.country === 'International' ? 'international_conversion' : 'international'),
       scheme: cardInfo.scheme,
@@ -88,7 +83,6 @@ const StripePayment = ({
     };
   };
 
-  // Handle card number changes
   useEffect(() => {
     const cardElement = elements?.getElement(CardElement);
     
@@ -100,13 +94,27 @@ const StripePayment = ({
           setIsReady(false);
         }
 
-        if (event.value?.replace(/\s/g, '').length >= 6) {
-          const bin = event.value.replace(/\s/g, '').substring(0, 6);
-          const cardInfo = await detectCardDetails(bin);
-          setCardDetails(cardInfo);
-          
-          const fees = calculateFees(cardInfo);
-          setFeeDetails(fees);
+        try {
+          const cardValue = event.value;
+          if (!cardValue || typeof cardValue !== 'string') {
+            return;
+          }
+
+          const cleanedValue = cardValue.replace(/\s/g, '');
+          if (cleanedValue.length >= 6) {
+            const bin = cleanedValue.substring(0, 6);
+            const cardInfo = await detectCardDetails(bin);
+            setCardDetails(cardInfo);
+            
+            const fees = calculateFees(cardInfo);
+            setFeeDetails(fees);
+          }
+        } catch (error) {
+          console.error("Error processing card details:", error);
+          setFeeDetails(prev => ({
+            ...prev,
+            displayAmount: (Number(baseAmount) + ((Number(baseAmount) * 5.9) / 100) + 0.50).toFixed(2)
+          }));
         }
       };
 
@@ -117,18 +125,6 @@ const StripePayment = ({
     }
   }, [elements, baseAmount]);
 
-  // Calculate initial fees with default values
-  useEffect(() => {
-    if (baseAmount > 0 && !feeDetails) {
-      const initialFees = {
-        ...defaultFees,
-        totalFee: ((baseAmount * defaultFees.percentage) / 100) + defaultFees.fixed,
-        displayAmount: (baseAmount + ((baseAmount * defaultFees.percentage) / 100) + defaultFees.fixed).toFixed(2)
-      };
-      setFeeDetails(initialFees);
-    }
-  }, [baseAmount]);
-
   const handlePayment = async (e) => {
     e.preventDefault();
     
@@ -138,26 +134,18 @@ const StripePayment = ({
 
     setLoading(true);
     setError(null);
-    setShowTransactionLoading(true);
 
     try {
       const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
         payment_method: {
           card: elements.getElement(CardElement),
-          billing_details: {
-            // Add any required billing details here
-            // name: 'Customer Name',
-            // email: 'customer@example.com'
-          }
         }
       });
 
       if (error) {
         setError(error.message);
         toast.error(error.message || "Payment failed");
-      } else if (paymentIntent && paymentIntent.status === "succeeded") {
-        setPaymentSuccess(true);
-
+      } else if (paymentIntent?.status === "succeeded") {
         const response = await axios.post(
           "https://api.hestiya.com/api/payment/",
           {
@@ -167,20 +155,18 @@ const StripePayment = ({
         );
         
         if (response.data) {
-          const { order_id, trx_hash, gas_used, intent_id } = response.data;
-
           const pdfData = {
-            hashId: trx_hash || intent_id,
+            hashId: response.data.trx_hash || paymentIntent.id,
             actionType: "Buy",
             trades: datastrue,
-            fees: gas_used || 0,
+            fees: response.data.gas_used || 0,
             hestiyafee: percentageValue,
             stripeFee: feeDetails?.totalFee || 0,
             paymentMethod: "Bank",
-            itemType: response?.data?.item_type,
-            registry: response?.data?.registry,
-            buyerName: response?.data?.buyer_name,
-            buyerEmail: response?.data?.buyer_email,
+            itemType: response.data.item_type,
+            registry: response.data.registry,
+            buyerName: response.data.buyer_name,
+            buyerEmail: response.data.buyer_email,
           };
           generateAndDownloadPurchasePDF(pdfData);
         }
@@ -195,11 +181,9 @@ const StripePayment = ({
       toast.error("Payment failed. Please try again.");
     } finally {
       setLoading(false);
-      setShowTransactionLoading(false);
     }
   };
 
-  // Check if Stripe has loaded
   if (!stripe) {
     return <div className="flex justify-center items-center h-64">Loading Stripe...</div>;
   }
@@ -208,53 +192,36 @@ const StripePayment = ({
     <div className="rounded-lg bg-white shadow-md p-6 max-w-md mx-auto">
       <h2 className="text-xl font-bold mb-4">Complete Your Payment</h2>
       
-      {feeDetails && (
-        <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-          <h3 className="font-semibold mb-2">Payment Summary</h3>
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <span>Subtotal:</span>
-              <span>${baseAmount.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <div className="flex items-center">
-                <span>Processing Fee ({feeDetails.percentage}%):</span>
-                <button 
-                  onClick={() => setShowFeeTooltip(!showFeeTooltip)}
-                  className="ml-1 text-gray-500 hover:text-gray-700"
-                  type="button"
-                >
-                  <FiInfo size={14} />
-                </button>
-              </div>
-              <span>${((baseAmount * feeDetails.percentage) / 100).toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Fixed Fee:</span>
-              <span>${feeDetails.fixed.toFixed(2)}</span>
-            </div>
-            <div className="border-t pt-2 mt-2 flex justify-between font-bold">
-              <span>Total:</span>
-              <span>${feeDetails.displayAmount}</span>
-            </div>
+      <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+        <h3 className="font-semibold mb-2">Payment Summary</h3>
+        <div className="space-y-2">
+          <div className="flex justify-between">
+            <span>Subtotal:</span>
+            <span>${Number(baseAmount).toFixed(2)}</span>
           </div>
-          
-          {showFeeTooltip && (
-            <div className="mt-2 p-2 bg-white border border-gray-200 rounded text-sm">
-              {feeDetails.type === 'domestic' && (
-                <p>Domestic {cardDetails?.scheme || 'card'} card ({feeDetails.percentage}% + ${feeDetails.fixed})</p>
-              )}
-              {feeDetails.type === 'international' && (
-                <p>International {cardDetails?.scheme || 'card'} card ({feeDetails.percentage}% + ${feeDetails.fixed})</p>
-              )}
-              {feeDetails.type === 'international_conversion' && (
-                <p>International card with currency conversion ({feeDetails.percentage}% + ${feeDetails.fixed})</p>
-              )}
-              {cardDetails?.country && <p>Card issued in: {cardDetails.country}</p>}
+          <div className="flex justify-between">
+            <div className="flex items-center">
+              <span>Processing Fee ({feeDetails.percentage}%):</span>
+              <button 
+                onClick={() => setShowFeeTooltip(!showFeeTooltip)}
+                className="ml-1 text-gray-500 hover:text-gray-700"
+                type="button"
+              >
+                <FiInfo size={14} />
+              </button>
             </div>
-          )}
+            <span>${((Number(baseAmount) * feeDetails.percentage) / 100).toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Fixed Fee:</span>
+            <span>${feeDetails.fixed.toFixed(2)}</span>
+          </div>
+          <div className="border-t pt-2 mt-2 flex justify-between font-bold">
+            <span>Total:</span>
+            <span>${feeDetails.displayAmount}</span>
+          </div>
         </div>
-      )}
+      </div>
 
       <form onSubmit={handlePayment} className="space-y-4">
         <div className="space-y-2">
@@ -273,7 +240,7 @@ const StripePayment = ({
                   color: '#9e2146',
                 },
               },
-              hidePostalCode: true // Add this to hide the postal code field if not needed
+              hidePostalCode: true
             }}
           />
         </div>
@@ -301,7 +268,7 @@ const StripePayment = ({
               : 'bg-blue-600 hover:bg-blue-700'
           }`}
         >
-          {loading ? 'Processing...' : `Pay $${feeDetails?.displayAmount || baseAmount.toFixed(2)}`}
+          {loading ? 'Processing...' : `Pay $${feeDetails.displayAmount}`}
         </button>
 
         {error && <div className="text-red-500 text-sm mt-2">{error}</div>}
@@ -313,7 +280,6 @@ const StripePayment = ({
 };
 
 export default StripePayment;
-
 
 
 
