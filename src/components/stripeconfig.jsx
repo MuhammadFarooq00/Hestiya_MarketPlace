@@ -3,8 +3,7 @@ import {
   useStripe, 
   useElements, 
   PaymentElement,
-  CardElement,
-  useStripeElements
+  CardElement
 } from "@stripe/react-stripe-js";
 import axios from "axios";
 import { ToastContainer, toast } from "react-toastify";
@@ -24,7 +23,6 @@ const StripePayment = ({
 }) => {
   const stripe = useStripe();
   const elements = useElements();
-  const stripeElements = useStripeElements();
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
@@ -64,10 +62,10 @@ const StripePayment = ({
 
   // Calculate fees based on card type and country
   const calculateFees = (cardInfo) => {
-    const isDomestic = cardInfo.country === 'Singapore'; // Adjust based on your business location
+    const isDomestic = cardInfo.country === 'Singapore';
     const isDebit = cardInfo.type === 'debit';
     
-    let percentage = 5.9; // Default: international with conversion
+    let percentage = 5.9;
     let fixed = 0.50;
 
     if (isDomestic) {
@@ -92,7 +90,7 @@ const StripePayment = ({
 
   // Handle card number changes
   useEffect(() => {
-    const cardElement = stripeElements?.getElement(CardElement);
+    const cardElement = elements?.getElement(CardElement);
     
     if (cardElement) {
       const handleChange = async (event) => {
@@ -111,7 +109,18 @@ const StripePayment = ({
         cardElement.off('change', handleChange);
       };
     }
-  }, [stripeElements, baseAmount]);
+  }, [elements, baseAmount]);
+
+  // Calculate initial fees with default values
+  useEffect(() => {
+    if (baseAmount > 0 && !feeDetails) {
+      setFeeDetails({
+        ...defaultFees,
+        totalFee: ((baseAmount * defaultFees.percentage) / 100) + defaultFees.fixed,
+        displayAmount: (baseAmount + ((baseAmount * defaultFees.percentage) / 100) + defaultFees.fixed).toFixed(2)
+      });
+    }
+  }, [baseAmount]);
 
   const handlePayment = async (e) => {
     e.preventDefault();
@@ -143,7 +152,7 @@ const StripePayment = ({
         setPaymentSuccess(true);
 
         const response = await axios.post(
-          "http://127.0.0.1:8000/api/payment/",
+          "https://api.hestiya.com/api/payment/",
           {
             intent_id: paymentIntent.id,
             cart_id: cartID,
@@ -185,16 +194,10 @@ const StripePayment = ({
     }
   };
 
-  // Calculate initial fees with default values
-  useEffect(() => {
-    if (baseAmount > 0 && !feeDetails) {
-      setFeeDetails({
-        ...defaultFees,
-        totalFee: ((baseAmount * defaultFees.percentage) / 100) + defaultFees.fixed,
-        displayAmount: (baseAmount + ((baseAmount * defaultFees.percentage) / 100) + defaultFees.fixed).toFixed(2)
-      });
-    }
-  }, [baseAmount]);
+  // Check if Stripe has loaded
+  if (!stripe) {
+    return <div className="flex justify-center items-center h-64">Loading Stripe...</div>;
+  }
 
   return (
     <div className="rounded-lg bg-white shadow-md p-6 max-w-md mx-auto">
@@ -302,7 +305,6 @@ const StripePayment = ({
 };
 
 export default StripePayment;
-
 
 
 
