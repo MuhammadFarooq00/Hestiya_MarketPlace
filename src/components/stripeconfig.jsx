@@ -1,9 +1,5 @@
-import React, { useState, useEffect, useContext } from "react";
-import {
-  useStripe,
-  useElements,
-  PaymentElement,
-} from "@stripe/react-stripe-js";
+import React, { useState, useEffect, useContext, useCallback } from "react";
+import { useStripe, useElements, PaymentElement } from "@stripe/react-stripe-js";
 import axios from "axios";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -12,7 +8,6 @@ import { generateAndDownloadPurchasePDF } from "../Template/Template";
 import { UserContext } from "../context/UserContext";
 
 const StripePayment = ({
-  clientSecret,
   cartID,
   setShowStripeModal,
   datastrue,
@@ -27,7 +22,6 @@ const StripePayment = ({
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [showTransactionLoading, setShowTransactionLoading] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState(null);
   const [cardCountry, setCardCountry] = useState(null);
   const [cardBrand, setCardBrand] = useState(null);
@@ -37,114 +31,120 @@ const StripePayment = ({
   const { setCartId } = useContext(UserContext);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (elements) {
-      const element = elements.getElement(PaymentElement);
-      if (element) {
-        setIsReady(true);
-        
-        element.on('change', (event) => {
-          if (event.complete && event.value) {
-            setPaymentMethod(event.value.type);
-            if (event.value.type === 'card') {
-              setCardBrand(event.value.card?.brand || 'unknown');
-              setCardCountry(event.value.card?.country || 'unknown');
-            }
-          }
-        });
-      }
-    }
-  }, [elements]);
-
-  useEffect(() => {
-    if (paymentMethod && paymentDetails) {
-      calculateFees();
-    }
-  }, [paymentMethod, paymentDetails, cardCountry, cardBrand]);
-
-  const calculateFees = () => {
-    if (!paymentDetails || !paymentMethod) return;
+  // Memoized fee calculation
+  const calculateFees = useCallback(() => {
+    if (!paymentDetails) return null;
 
     const baseAmount = paymentDetails.total_cart_price;
     let fees = 0;
     let currentFeeType = '';
     let feeDetails = {};
 
-    // Determine fee structure based on payment method and card details
     if (paymentMethod === 'card') {
-      // For demo purposes - in production you would need more sophisticated detection
       if (cardCountry === 'SG') {
-        // Domestic Singapore card
         feeDetails = feeStructure.domestic;
-        currentFeeType = feeDetails.label;
-      } else if (cardBrand === 'unknown' || cardCountry === 'unknown') {
-        // Default to international with conversion if we can't detect
-        feeDetails = feeStructure.internationalWithConversion;
-        currentFeeType = feeDetails.label;
-      } else {
-        // International card - check if same currency
-        // Note: This is simplified - in production you'd need proper currency handling
+      } else if (cardBrand && cardCountry) {
         feeDetails = feeStructure.internationalSameCurrency;
-        currentFeeType = feeDetails.label;
+      } else {
+        feeDetails = feeStructure.internationalWithConversion;
       }
       
       fees = (baseAmount * feeDetails.percentage / 100) + feeDetails.fixed;
-    } else if (paymentMethod === 'us_bank_account') {
-      // USD payout
-      feeDetails = feeStructure.usdPayout;
       currentFeeType = feeDetails.label;
+    } else if (paymentMethod === 'us_bank_account') {
+      feeDetails = feeStructure.usdPayout;
       fees = Math.max(
         (baseAmount * feeDetails.percentage / 100),
         feeDetails.minFee
       );
+      currentFeeType = feeDetails.label;
+    } else {
+      // Default to highest fee if payment method not recognized
+      feeDetails = feeStructure.internationalWithConversion;
+      fees = (baseAmount * feeDetails.percentage / 100) + feeDetails.fixed;
+      currentFeeType = feeDetails.label;
     }
 
     const platformFee = (baseAmount * percentageValue / 100);
     const total = baseAmount + fees + platformFee;
 
-    setCalculatedFees(fees);
-    setTotalAmount(total);
-    setFeeType(currentFeeType);
-
     return {
       feeType: currentFeeType,
-      fees: fees.toFixed(2),
-      platformFee: platformFee.toFixed(2),
-      totalAmount: total.toFixed(2),
+      fees: parseFloat(fees.toFixed(2)),
+      platformFee: parseFloat(platformFee.toFixed(2)),
+      totalAmount: parseFloat(total.toFixed(2)),
       feePercentage: feeDetails.percentage,
-      fixedFee: feeDetails.fixed
+      fixedFee: feeDetails.fixed,
+      baseAmount: parseFloat(baseAmount.toFixed(2))
     };
-  };
+  }, [paymentDetails, paymentMethod, cardCountry, cardBrand, feeStructure, percentageValue]);
+
+  const feeDetails = calculateFees();
+
+  useEffect(() => {
+    if (feeDetails) {
+      setCalculatedFees(feeDetails.fees);
+      setTotalAmount(feeDetails.totalAmount);
+      setFeeType(feeDetails.feeType);
+    }
+  }, [feeDetails]);
+
+  useEffect(() => {
+    if (!elements) return;
+
+    const element = elements.getElement(PaymentElement);
+    if (!element) return;
+
+    const handleChange = (event) => {
+      if (event.complete) {
+        if (event.value && event.value.type) {
+          setPaymentMethod(event.value.type);
+          if (event.value.type === 'card') {
+            setCardBrand(event.value.card?.brand || null);
+            setCardCountry(event.value.card?.country || null);
+          } else {
+            setCardBrand(null);
+            setCardCountry(null);
+          }
+        }
+      }
+    };
+
+    element.on('change', handleChange);
+    setIsReady(true);
+
+    return () => {
+      element.off('change', handleChange);
+    };
+  }, [elements]);
 
   const handlePayment = async (e) => {
     e.preventDefault();
+    setError(null);
     setLoading(true);
 
     if (!stripe || !elements) {
-      setError("Stripe.js has not loaded.");
+      setError("Payment system not ready. Please try again.");
       setLoading(false);
       return;
     }
 
-    setShowTransactionLoading(true);
-
     try {
-      const { error, paymentIntent } = await stripe.confirmPayment({
+      const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
         elements,
         confirmParams: {
           return_url: window.location.href,
         },
-        redirect: "if_required",
+        redirect: 'if_required',
       });
 
-      if (error) {
-        setError(error.message);
-        setLoading(false);
-      } else if (paymentIntent && paymentIntent.status === "succeeded") {
-        setError(null);
-        setLoading(false);
-        setPaymentSuccess(true);
+      if (stripeError) {
+        throw stripeError;
+      }
 
+      if (paymentIntent && paymentIntent.status === 'succeeded') {
+        setPaymentSuccess(true);
+        
         const response = await axios.post(
           "https://api.hestiya.com/api/payment/",
           {
@@ -152,10 +152,8 @@ const StripePayment = ({
             cart_id: cartID,
           }
         );
-        
+
         if (response.data) {
-          const feeDetails = calculateFees();
-          
           const pdfData = {
             hashId: response.data.trx_hash || paymentIntent.id,
             actionType: "Buy",
@@ -173,31 +171,44 @@ const StripePayment = ({
             buyerName: response.data?.buyer_name,
             buyerEmail: response.data?.buyer_email,
           };
+          
           generateAndDownloadPurchasePDF(pdfData);
+          
+          setCartId(null);
+          localStorage.removeItem("cartId");
+          navigate("/marketplace/portfolio");
+          toast.success("Payment successful!");
+          setShowStripeModal(false);
         }
-
-        setShowStripeModal(false);
-        setCartId(null);
-        navigate("/marketplace/portfolio");
-        setShowTransactionLoading(false);
-        localStorage.removeItem("cartId");
-        toast.success("Purchase Successful!");
       }
     } catch (err) {
-      setError(err.message);
+      console.error("Payment error:", err);
+      setError(err.message || "Payment failed. Please try again.");
+      toast.error(err.message || "Payment failed. Please try again.");
+    } finally {
       setLoading(false);
-      setShowStripeModal(false);
-      setShowTransactionLoading(false);
-      toast.error("Payment failed. Please try again.");
     }
   };
 
-  const feeDetails = calculateFees();
+  if (!paymentDetails) {
+    return null;
+  }
 
   return (
-    <div className="rounded-lg bg-white shadow-md p-4">
-      <form onSubmit={handlePayment}>
-        <PaymentElement />
+    <div className="rounded-lg bg-white shadow-md p-4 max-h-[80vh] overflow-y-auto">
+      <form onSubmit={handlePayment} className="space-y-4">
+        <PaymentElement 
+          options={{
+            fields: {
+              billingDetails: {
+                name: 'never',
+                email: 'never',
+                phone: 'never',
+                address: 'never'
+              }
+            }
+          }}
+        />
         
         {paymentMethod && feeDetails && (
           <div className="mt-4 p-4 bg-gray-50 rounded-lg">
@@ -205,73 +216,75 @@ const StripePayment = ({
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span>Subtotal:</span>
-                <span>${paymentDetails.total_cart_price.toFixed(2)}</span>
+                <span>${feeDetails.baseAmount.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Platform Fee ({percentageValue}%):</span>
-                <span>${feeDetails.platformFee}</span>
+                <span>${feeDetails.platformFee.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>
                   Processing Fee ({feeDetails.feeType}): 
                   <span className="text-xs text-gray-500 ml-1">
-                    ({feeDetails.feePercentage}% + ${feeDetails.fixedFee})
+                    ({feeDetails.feePercentage}% + ${feeDetails.fixedFee.toFixed(2)})
                   </span>
                 </span>
-                <span>${feeDetails.fees}</span>
+                <span>${feeDetails.fees.toFixed(2)}</span>
               </div>
               <div className="border-t border-gray-200 pt-2 mt-2">
                 <div className="flex justify-between font-semibold">
                   <span>Total Amount:</span>
-                  <span>${feeDetails.totalAmount}</span>
+                  <span>${feeDetails.totalAmount.toFixed(2)}</span>
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {paymentSuccess ? null : error && (
-          <div className="mt-4 text-red-500 text-sm">{error}</div>
+        {error && (
+          <div className="mt-4 p-3 bg-red-50 text-red-600 rounded text-sm">
+            {error}
+          </div>
         )}
 
-        <div className="mt-4 text-xs text-justify">
-          <label className="flex items-start">
+        <div className="mt-4 text-xs">
+          <label className="flex items-start space-x-2">
             <input
               type="checkbox"
               checked={termsAccepted}
               onChange={(e) => setTermsAccepted(e.target.checked)}
-              className="mt-1 mr-2"
+              className="mt-1"
             />
             <span>
-              By proceeding with this transaction, I confirm that I have read,
-              understood, and agreed to be bound by Hestiya.com's Privacy Policy,
-              Platform Terms & conditions and the privacy policies of any
-              third-party payment processors engaged by Hestiya.com. Non-compliance
-              with the Platform Terms may result in transaction termination or
-              penalties imposed by Hestiya.com.
+              By proceeding, I agree to Hestiya's Terms and Privacy Policy.
+              I understand that additional fees may apply based on my payment method.
             </span>
           </label>
         </div>
 
         <button
           type="submit"
-          disabled={
-            !stripe ||
-            !isReady ||
-            loading ||
-            !termsAccepted ||
-            showTransactionLoading
-          }
-          className={`w-full mt-4 bg-blue-500 hover:bg-blue-700 ${
-            (!termsAccepted || !paymentMethod) ? "opacity-50 cursor-not-allowed" : ""
-          } text-white font-bold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500`}
+          disabled={!stripe || !isReady || loading || !termsAccepted}
+          className={`w-full mt-4 py-3 px-4 rounded-lg font-bold text-white transition-colors ${
+            (!stripe || !isReady || !termsAccepted) 
+              ? "bg-gray-400 cursor-not-allowed" 
+              : "bg-blue-500 hover:bg-blue-600"
+          }`}
         >
-          {loading || showTransactionLoading 
-            ? "Processing..." 
-            : `Pay $${totalAmount > 0 ? totalAmount.toFixed(2) : feeDetails?.totalAmount || paymentDetails?.total_cart_price.toFixed(2)}`}
+          {loading ? (
+            <span className="inline-flex items-center">
+              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Processing...
+            </span>
+          ) : (
+            `Pay $${feeDetails?.totalAmount.toFixed(2) || paymentDetails.total_cart_price.toFixed(2)}`
+          )}
         </button>
       </form>
-      <ToastContainer />
+      <ToastContainer position="bottom-right" />
     </div>
   );
 };

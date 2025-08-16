@@ -9,14 +9,15 @@ const stripePromise = loadStripe('pk_live_51QhTuxIk4TcSBVYmnNPv31CraR7Ae2fhJgnhL
 const StripePaymentWrapper = ({ cartID, setShowStripeModal, datastrue, percentageValue }) => {
   const [clientSecret, setClientSecret] = useState('');
   const [paymentDetails, setPaymentDetails] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   
-  // Updated fee structure with exact values from requirements
-  const [feeStructure] = useState({
+  const feeStructure = {
     domestic: { percentage: 3.4, fixed: 0.50, currency: 'SGD', label: 'Domestic Card (SGD)' },
     internationalSameCurrency: { percentage: 3.9, fixed: 0.50, currency: 'SGD', label: 'International Card (same currency)' },
     internationalWithConversion: { percentage: 5.9, fixed: 0.50, currency: 'SGD', label: 'International Card + currency conversion' },
     usdPayout: { percentage: 1, fixed: 5, currency: 'USD', label: 'USD Payout', minFee: 5 }
-  });
+  };
 
   const apiUrl = "https://api.hestiya.com/api/";
 
@@ -28,22 +29,58 @@ const StripePaymentWrapper = ({ cartID, setShowStripeModal, datastrue, percentag
           axios.post(`${apiUrl}payment-intent/`, { cart_id: cartID })
         ]);
 
+        if (!detailsResponse.data || !intentResponse.data.client_secret) {
+          throw new Error('Failed to load payment details');
+        }
+
         setPaymentDetails(detailsResponse.data);
         setClientSecret(intentResponse.data.client_secret);
-      } catch (error) {
-        console.error('Error fetching payment details:', error);
+        setLoading(false);
+      } catch (err) {
+        console.error('Error fetching payment details:', err);
+        setError(err.message);
+        setLoading(false);
       }
     };
 
     fetchPaymentDetails();
   }, [cartID]);
 
-  if (!clientSecret || !paymentDetails) {
+  if (loading) {
     return <div className="flex justify-center items-center h-64">Loading payment details...</div>;
   }
 
+  if (error) {
+    return (
+      <div className="flex flex-col justify-center items-center h-64 p-4">
+        <div className="text-red-500 mb-4">Error: {error}</div>
+        <button
+          onClick={() => setShowStripeModal(false)}
+          className="px-4 py-2 bg-red-500 text-white rounded"
+        >
+          Close
+        </button>
+      </div>
+    );
+  }
+
+  if (!clientSecret || !paymentDetails) {
+    return null;
+  }
+
   return (
-    <Elements className='overflow-y-auto w-full max-h-[660px]' stripe={stripePromise} options={{ clientSecret }}>
+    <Elements 
+      stripe={stripePromise} 
+      options={{
+        clientSecret,
+        appearance: {
+          theme: 'stripe',
+          variables: {
+            colorPrimary: '#6772e5',
+          }
+        }
+      }}
+    >
       <StripePayment 
         clientSecret={clientSecret} 
         cartID={cartID} 
