@@ -4,7 +4,7 @@ import { Elements } from '@stripe/react-stripe-js';
 import axios from 'axios';
 import StripePayment from './stripeconfig';
 
-const stripePromise = loadStripe('pk_test_51PCeKX02W2AiAFpz2n7rok9COEOQdhuGeNXovHgNjV2Aug6mFjJkPQ33CZevnhrYWfzsq5z1TZZfmpo1FOKgi6hg00mmo7dby0');
+const stripePromise = loadStripe('pk_live_51QhTuxIk4TcSBVYmnNPv31CraR7Ae2fhJgnhLeOCgCvobgjS1ZHNdl9PO4shDKnCZuncBQKrrMpuDzwTCQK2Hzh200TTx3Z9wC');
 
 const StripePaymentWrapper = ({ cartID, setShowStripeModal, datastrue, percentageValue }) => {
   const [clientSecret, setClientSecret] = useState('');
