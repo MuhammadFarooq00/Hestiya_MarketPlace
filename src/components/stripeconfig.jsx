@@ -25,6 +25,8 @@ const StripePayment = ({
   const [paymentMethod, setPaymentMethod] = useState(null);
   const [cardCountry, setCardCountry] = useState(null);
   const [cardBrand, setCardBrand] = useState(null);
+  const [cardComplete, setCardComplete] = useState(false);
+  const [billingDetails, setBillingDetails] = useState(null);
   const [calculatedFees, setCalculatedFees] = useState(0);
   const [totalAmount, setTotalAmount] = useState(0);
   const [feeType, setFeeType] = useState('');
@@ -96,27 +98,49 @@ const StripePayment = ({
     if (!element) return;
 
     const handleChange = (event) => {
+      const { complete, value, empty } = event;
+      
       if (event.complete) {
-        if (event.value && event.value.type) {
-          setPaymentMethod(event.value.type);
-          if (event.value.type === 'card') {
-            setCardBrand(event.value.card?.brand || null);
-            setCardCountry(event.value.card?.country || null);
+        setIsReady(true);
+        
+        if (value && value.type) {
+          setPaymentMethod(value.type);
+          
+          if (value.type === 'card') {
+            setCardBrand(value.card?.brand || null);
+            setCardCountry(value.card?.country || null);
+            setCardComplete(complete && !empty);
           } else {
             setCardBrand(null);
             setCardCountry(null);
+            setCardComplete(complete);
           }
         }
+        
+        // Collect any available billing details
+        if (event.value && event.value.billingDetails) {
+          setBillingDetails(event.value.billingDetails);
+        }
+      } else {
+        setIsReady(false);
+        setCardComplete(false);
       }
     };
 
     element.on('change', handleChange);
-    setIsReady(true);
 
     return () => {
       element.off('change', handleChange);
     };
   }, [elements]);
+
+  // Check if payment form is complete and valid
+  const isFormComplete = () => {
+    if (!isReady) return false;
+    if (!termsAccepted) return false;
+    if (paymentMethod === 'card' && !cardComplete) return false;
+    return true;
+  };
 
   const handlePayment = async (e) => {
     e.preventDefault();
@@ -130,11 +154,21 @@ const StripePayment = ({
     }
 
     try {
+      // Prepare billing details if available
+      const confirmParams = {
+        return_url: window.location.href,
+      };
+
+      // Only add billing details if they exist
+      if (billingDetails) {
+        confirmParams.payment_method_data = {
+          billing_details: billingDetails
+        };
+      }
+
       const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
         elements,
-        confirmParams: {
-          return_url: window.location.href,
-        },
+        confirmParams,
         redirect: 'if_required',
       });
 
@@ -197,7 +231,21 @@ const StripePayment = ({
   return (
     <div className="rounded-lg bg-white shadow-md p-4 max-h-[80vh] overflow-y-auto">
       <form onSubmit={handlePayment} className="space-y-4">
-        <PaymentElement/>
+        <PaymentElement 
+          options={{
+            fields: {
+              billingDetails: {
+                name: 'never',
+                email: 'never',
+                phone: 'never',
+                address: {
+                  country: 'never',
+                  postalCode: 'never'
+                }
+              }
+            }
+          }}
+        />
         
         {paymentMethod && feeDetails && (
           <div className="mt-4 p-4 bg-gray-50 rounded-lg">
@@ -253,9 +301,9 @@ const StripePayment = ({
 
         <button
           type="submit"
-          disabled={!stripe || !isReady || loading || !termsAccepted}
+          disabled={!stripe || loading || !isFormComplete()}
           className={`w-full mt-4 py-3 px-4 rounded-lg font-bold text-white transition-colors ${
-            (!stripe || !isReady || !termsAccepted) 
+            (!stripe || loading || !isFormComplete()) 
               ? "bg-gray-400 cursor-not-allowed" 
               : "bg-blue-500 hover:bg-blue-600"
           }`}
