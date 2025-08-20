@@ -197,18 +197,7 @@ const StripePayment = ({
   return (
     <div className="rounded-lg bg-white shadow-md p-4 max-h-[80vh] overflow-y-auto">
       <form onSubmit={handlePayment} className="space-y-4">
-        <PaymentElement 
-          options={{
-            fields: {
-              billingDetails: {
-                name: 'never',
-                email: 'never',
-                phone: 'never',
-                address: 'never'
-              }
-            }
-          }}
-        />
+        <PaymentElement/>
         
         {paymentMethod && feeDetails && (
           <div className="mt-4 p-4 bg-gray-50 rounded-lg">
